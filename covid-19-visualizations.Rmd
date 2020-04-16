@@ -1,0 +1,725 @@
+---
+title: "A Closer Look at the Covid-19 Data"
+author: "by Lukas Jürgensmeier"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{css echo=FALSE}
+/* Define a margin before h2 element */
+h2  {
+  margin-top: 3em;
+}
+
+/* Define a margin after every first p elements */
+p:first-of-type {
+  margin-bottom: 0em;
+}
+``` 
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(gghighlight)
+library(ggrepel)
+
+library(gghighlight)
+library(magick) # for including a .png in plots
+TA_logo <- image_read("../../R/plots/TA_logo.png")
+
+library(plotly)
+Sys.setlocale("LC_TIME", "English")
+```
+
+
+```{r, include = FALSE, warnings=FALSE}
+# additional plotting
+df_full <- read.csv("../../data/predict/predict.csv")
+world_map <- read.csv("../../data/maps/world_map.csv") %>% mutate(time = as.Date(time))
+country_lookup <- read.csv("../../data/misc/country_lookup.csv")
+
+ma <- 4 # defines moving average parameter
+
+df_full %>% 
+  mutate(time = as.Date(time)) %>% 
+  group_by(country) %>% 
+  mutate(confirmed_abs_daily = confirmed - lag(confirmed),
+         confirmed_abs_ma = zoo::rollapply(confirmed_abs_daily, ma, mean, align = "right", fill = NA),
+         confirmed_pct_daily = confirmed / lag(confirmed),
+         confirmed_pct_ma = zoo::rollapply(confirmed_pct_daily, ma, mean, align = "right", fill = NA),
+         deaths_abs_daily = deaths - lag(deaths),
+         deaths_abs_ma = zoo::rollapply(deaths_abs_daily, ma, mean, align = "right", fill = NA),
+         deaths_pct_daily = deaths / lag(deaths),
+         deaths_pct_ma = zoo::rollapply(deaths_pct_daily, ma, mean, align = "right", fill = NA)
+         ) -> df_full_c
+
+df_full_c %>%
+  filter(time == max(time)) %>% 
+  group_by(country) %>% 
+  summarize(confirmed = sum(confirmed),
+            time = max(time)) %>% 
+  arrange(desc(confirmed)) %>% 
+  top_n(8, confirmed) %>% 
+  pull(country) %>% 
+  droplevels() -> top_countries
+```
+
+This website contains visualizations on the Coronavirus outbreak that should foster a data-driven assessment of the current situation. All plots will be updated daily to reflect the latest data.  
+
+It is created as a part of [TechAcademy e.V.](https://tech-academy.io/), a student-run initiative at Goethe University in Frankfurt, Germany. We teach coding for Data Science and Web Development mostly to students with no computer science background. Next semester, our students will analyze the Covid-19 data set and learn how to create those visualizations and predictions.  
+
+Data includes cases up until: `r max(df_full_c$time)`.
+
+Report generated: `r Sys.time()`.
+
+Data source: [Johns Hopkins CSSE](https://github.com/CSSEGISandData/COVID-19)
+
+In case you have questions or suggestions, please contact me at lukas.juergensmeier@tech-academy.io.
+
+## Maps {.tabset}
+
+### Confirmed
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE, fig.height=6.5, fig.width=8.5}
+world_map %>% 
+  ggplot(aes(x = long, y = lat, group = group)) +
+  geom_polygon(aes(fill = confirmed), color = "black") +
+  scale_fill_distiller(palette = "Spectral", labels = scales::comma) +
+  theme_minimal() +
+  labs(title = "Covid-19: Worldwide Spread of the Disease",
+       subtitle = paste("Confirmed cases by country"),
+       x = "longitude",       
+       y = "latitude",
+       caption = paste("Incl. cases up until", max(world_map$time, na.rm = TRUE), "\nData: Johns Hopkins CSSE\nVisualization: Lukas Jürgensmeier"),
+       fill = "Confirmed Cases") +
+  coord_map(xlim = c(-180, 180)) +
+  ylim(c(-56, 83)) +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        plot.caption = element_text(hjust = 0, face = "italic"),
+        legend.position = c(0.1, 0.2),
+        legend.background = element_rect(fill = "lightblue", 
+                                         size = 0.5, linetype = "solid"))
+grid::grid.raster(TA_logo, x = 0.98, y = 0.01, just = c('right', 'bottom'), width = unit(1.5, 'inches'))
+```
+
+### Deaths
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE, fig.height=6.5, fig.width=8.5}
+world_map %>% 
+  ggplot(aes(x = long, y = lat, group = group)) +
+  geom_polygon(aes(fill = deaths), color = "black") +
+  scale_fill_distiller(palette = "Spectral", labels = scales::comma) +
+  theme_minimal() +
+  labs(title = "Covid-19: Worldwide Spread of the Disease",
+       subtitle = paste("Deaths by country"),
+       x = "longitude",       
+       y = "latitude",
+       caption = paste("Incl. cases up until", max(world_map$time, na.rm = TRUE), "\nData: Johns Hopkins CSSE\nVisualization: Lukas Jürgensmeier"),
+       fill = "Deaths") +
+  coord_map(xlim = c(-180, 180)) +
+  ylim(c(-56, 83)) +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        plot.caption = element_text(hjust = 0, face = "italic"),
+        legend.position = c(0.1, 0.2),
+        legend.background = element_rect(fill = "lightblue", 
+                                         size = 0.5, linetype = "solid"))
+grid::grid.raster(TA_logo, x = 0.98, y = 0.01, just = c('right', 'bottom'), width = unit(1.5, 'inches'))
+```
+
+### Mortality
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE, fig.height=6.5, fig.width=8.5}
+world_map %>% 
+  filter(mortality < 0.4) %>% 
+  ggplot(aes(x = long, y = lat, group = group)) +
+  geom_polygon(aes(fill = mortality), color = "black") +
+  scale_fill_distiller(palette = "Spectral", labels = scales::percent) +
+  theme_minimal() +
+  labs(title = "Covid-19: Worldwide Spread of the Disease",
+       subtitle = paste("Mortality by country"),
+       x = "longitude",       
+       y = "latitude",
+       caption = paste("Incl. cases up until", max(world_map$time, na.rm = TRUE), "\nData: Johns Hopkins CSSE\nVisualization: Lukas Jürgensmeier"),
+       fill = "Mortality") +
+  coord_map(xlim = c(-180, 180)) +
+  ylim(c(-56, 83)) +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        plot.caption = element_text(hjust = 0, face = "italic"),
+        legend.position = c(0.1, 0.2),
+        legend.background = element_rect(fill = "lightblue", 
+                                         size = 0.5, linetype = "solid"))
+grid::grid.raster(TA_logo, x = 0.98, y = 0.01, just = c('right', 'bottom'), width = unit(1.5, 'inches'))
+```
+
+
+A word of caution regarding the mortality rate: Here, it is calculated as $$mortality =\frac{deaths}{confirmed}.$$
+While the numerator might be measured quite accurately, the denominator depends largely on other factors such as availability and quantity of testing. If a country doesn't aggressively test a larger share of the population, the mortality rate will be overestimated by a wide margin. So please don't interpret too much into this metric and wait for post-hoc assessments through tests of representative random samples of the population.
+
+### Confirmed (Europe)
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE, fig.height=8, fig.width=8.5}
+country_lookup %>% 
+  filter(region == "Europe") %>%
+  filter(alpha.3 != "RUS")  %>%         
+  pull(alpha.3) -> countrycode_europe
+
+
+world_map %>% 
+  group_by(region, countrycode, time) %>% 
+  summarize(long_mean = mean(long),
+            lat_mean = mean(lat),
+            confirmed = median(confirmed),
+            deaths = median(deaths),
+            mortality = median(mortality)
+  ) %>% 
+  filter(countrycode %in% countrycode_europe) %>%
+  filter(!is.na(confirmed)) %>% 
+  mutate(label = paste(region, confirmed, sep = "\n")) -> label_centroids
+
+
+world_map %>% 
+  filter(countrycode %in% countrycode_europe) %>% 
+  ggplot(aes(x = long, y = lat, group = group)) +
+  geom_polygon(aes(fill = confirmed), color = "black") +
+  geom_label_repel(data = label_centroids,
+                   aes(x = long_mean, y = lat_mean, label = label),
+                   inherit.aes = FALSE,
+                   segment.color = "white",
+                   alpha = 0.8,
+                   size = 2.5) +
+  coord_map() +
+  ylim(c(35, 66)) +
+  scale_fill_distiller(palette = "Spectral", labels = scales::comma) +
+  theme_minimal() +
+  labs(title = "Covid-19: Spread of the Disease in Europe",
+       subtitle = paste("Confirmed cases by country"),
+       fill = "Confirmed",
+       y = "latitude",
+       x = "longitude",
+       caption = paste("Incl. cases up until", max(world_map$time, na.rm = TRUE), "\nData: Johns Hopkins CSSE\nVisualization: Lukas Jürgensmeier")) +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        plot.caption = element_text(hjust = 0, face = "italic"),
+        legend.position = c(0.1, 0.2),
+        legend.background = element_rect(fill = "lightblue", 
+                                         size = 0.5, linetype = "solid"))
+grid::grid.raster(TA_logo, x = 0.98, y = 0.01, just = c('right', 'bottom'), width = unit(1.5, 'inches'))
+```
+
+
+### Deaths (Europe)
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE, fig.height=8, fig.width=8.5}
+world_map %>% 
+  group_by(region, countrycode, time) %>% 
+  summarize(long_mean = mean(long),
+            lat_mean = mean(lat),
+            confirmed = median(confirmed),
+            deaths = median(deaths),
+            mortality = median(mortality)
+  ) %>% 
+  filter(countrycode %in% countrycode_europe) %>%
+  filter(!is.na(confirmed)) %>% 
+  mutate(label = paste(region, deaths, sep = "\n")) -> label_centroids
+
+
+world_map %>% 
+  filter(countrycode %in% countrycode_europe) %>% 
+  ggplot(aes(x = long, y = lat, group = group)) +
+  geom_polygon(aes(fill = deaths), color = "black") +
+  geom_label_repel(data = label_centroids,
+                   aes(x = long_mean, y = lat_mean, label = label),
+                   inherit.aes = FALSE,
+                   segment.color = "white",
+                   alpha = 0.8,
+                   size = 2.5) +
+  coord_map() +
+  ylim(c(35, 66)) +
+  scale_fill_distiller(palette = "Spectral", labels = scales::comma) +
+  theme_minimal() +
+  labs(title = "Covid-19: Spread of the Disease in Europe",
+       subtitle = paste("Deaths by country"),
+       fill = "Deaths",
+       y = "latitude",
+       x = "longitude",
+       caption = paste("Incl. cases up until", max(world_map$time, na.rm = TRUE), "\nData: Johns Hopkins CSSE\nVisualization: Lukas Jürgensmeier")) +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        plot.caption = element_text(hjust = 0, face = "italic"),
+        legend.position = c(0.1, 0.2),
+        legend.background = element_rect(fill = "lightblue", 
+                                         size = 0.5, linetype = "solid"))
+grid::grid.raster(TA_logo, x = 0.98, y = 0.01, just = c('right', 'bottom'), width = unit(1.5, 'inches'))
+```
+
+
+### Mortality (Europe)
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE, fig.height=8, fig.width=8.5}
+world_map %>% 
+  group_by(region, countrycode, time) %>% 
+  summarize(long_mean = mean(long),
+            lat_mean = mean(lat),
+            confirmed = median(confirmed),
+            deaths = median(deaths),
+            mortality = round(median(mortality)*100, 1)
+  ) %>% 
+  filter(countrycode %in% countrycode_europe) %>%
+  filter(!is.na(confirmed)) %>% 
+  mutate(label = paste(region, paste(mortality, "%"), sep = "\n")) -> label_centroids
+
+
+world_map %>% 
+  filter(countrycode %in% countrycode_europe) %>% 
+  ggplot(aes(x = long, y = lat, group = group)) +
+  geom_polygon(aes(fill = mortality), color = "black") +
+  geom_label_repel(data = label_centroids,
+                   aes(x = long_mean, y = lat_mean, label = label),
+                   inherit.aes = FALSE,
+                   segment.color = "white",
+                   alpha = 0.8,
+                   size = 2.5) +
+  coord_map() +
+  ylim(c(35, 66)) +
+  scale_fill_distiller(palette = "Spectral", labels = scales::comma) +
+  theme_minimal() +
+  labs(title = "Covid-19: Spread of the Disease in Europe",
+       subtitle = paste("Mortality by country"),
+       fill = "Mortality",
+       y = "latitude",
+       x = "longitude",
+       caption = paste("Incl. cases up until", max(world_map$time, na.rm = TRUE), "\nData: Johns Hopkins CSSE\nVisualization: Lukas Jürgensmeier")) +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        plot.caption = element_text(hjust = 0, face = "italic"),
+        legend.position = c(0.1, 0.2),
+        legend.background = element_rect(fill = "lightblue", 
+                                         size = 0.5, linetype = "solid"))
+grid::grid.raster(TA_logo, x = 0.98, y = 0.01, just = c('right', 'bottom'), width = unit(1.5, 'inches'))
+```
+
+A word of caution regarding the mortality rate: Here, it is calculated as $$mortality =\frac{deaths}{confirmed}.$$
+While the numerator might be measured quite accurately, the denominator depends largely on other factors such as availability and quantity of testing. If a country doesn't aggressively test a larger share of the population, the mortality rate will be overestimated by a wide margin. So please don't interpret too much into this metric and wait for post-hoc assessments through tests of representative random samples of the population.
+
+## Static Visualizations: Most Affected Countries {.tabset}
+
+### Confirmed (stacked)
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height=7}
+df_full_c %>% 
+  group_by(country, time) %>% 
+  summarize(confirmed = sum(confirmed)) %>% 
+  select(country, time, confirmed) %>% 
+  filter(country %in% top_countries) %>% 
+  droplevels() -> conf_agg_time_country
+
+conf_agg_time_country %>% 
+  arrange(factor(country, levels = top_countries)) %>% 
+  ggplot(aes(x = time, y = confirmed, fill = reorder(country, confirmed))) +
+  geom_area(position = "stack", color = "white") +
+  scale_fill_brewer(palette = "Blues") +
+  scale_y_continuous(labels = scales::comma) +
+  labs(fill = "Country",
+       x = 'Date',
+       y = "Number of confirmed cases",
+       title = "Covid-19: Spread Slows in China While Accelerating in Western Countries",
+       subtitle = "Confirmed cases by time and country",
+       caption = paste("Incl. cases up until", max(df_full_c$time), "\nData: Johns Hopkins CSSE\nVisualization: Lukas Jürgensmeier")) +
+    theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+          plot.caption = element_text(hjust = 0, face = "italic"),
+          legend.position = c(0.2, 0.7))
+grid::grid.raster(TA_logo, x = 0.98, y = 0.01, just = c('right', 'bottom'), width = unit(1.5, 'inches'))
+```
+
+### Confirmed (linear scale)
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# linear scale
+
+df_full_c %>% 
+  filter(country %in% top_countries) %>% 
+  filter(country != "China") %>% 
+  ggplot(aes(days_larger_100, confirmed, color = country)) +
+  geom_line(size = 1.2) +
+  gghighlight::gghighlight(country %in% top_countries,
+                           label_params = list(segment.color = "black", fontface = "bold", fill = "black")) +
+  scale_y_continuous(labels = scales::comma) +
+  scale_color_brewer(palette = "Dark2") +
+  labs(x = "Days since 100th confirmed case",
+       y = "Number of confirmed cases",
+       title = "Covid-19: Flatten or Steepen the Curve?",
+       subtitle = "Confirmed cases over time by country",
+       caption = paste("Incl. cases up until", max(df_full_c$time), "\nData: Johns Hopkins CSSE\nVisualization: Lukas Jürgensmeier")) +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        plot.caption = element_text(hjust = 0, face = "italic"),
+        panel.grid.major.x = element_line(colour = "white", size = 0.5)) +
+  scale_x_continuous(minor_breaks = seq(0 , 100, 7), breaks = seq(0, 100, 7))
+grid::grid.raster(TA_logo, x = 0.98, y = 0.01, just = c('right', 'bottom'), width = unit(1.5, 'inches'))
+
+```
+
+### Confirmed (log scale)
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE}
+# log10 scale
+
+df_full_c %>% 
+  filter(country %in% top_countries) %>% 
+  filter(country != "China") %>% 
+  ggplot(aes(days_larger_100, confirmed, color = country)) +
+  geom_line(size = 1.2) +
+  gghighlight::gghighlight(country %in% top_countries,
+                           label_params = list(segment.color = "black", fontface = "bold", fill = "black")) +
+  scale_color_brewer(palette = "Dark2") +
+  labs(x = "Days since 100th confirmed case",
+       y = "Number of confirmed cases (log scale)",
+       title = "Covid-19: Flatten or Steepen the Curve?",
+       subtitle = "Confirmed cases over time by country, log scale",
+       caption = paste("Incl. cases up until", max(df_full_c$time), "\nData: Johns Hopkins CSSE\nVisualization: Lukas Jürgensmeier")) +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        plot.caption = element_text(hjust = 0, face = "italic"),
+        panel.grid.major.x = element_line(colour = "white", size = 0.5)) +
+  scale_x_continuous(minor_breaks = seq(0 , 100, 7), breaks = seq(0, 100, 7)) +
+  scale_y_log10(labels = scales::comma,
+                limits = c(100, max(df_full$confirmed)))
+grid::grid.raster(TA_logo, x = 0.98, y = 0.01, just = c('right', 'bottom'), width = unit(1.5, 'inches'))
+
+```
+
+### Deaths (stacked)
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height=7}
+df_full_c %>% 
+  group_by(country, time) %>% 
+  summarize(deaths = sum(deaths)) %>% 
+  select(country, time, deaths) %>% 
+  filter(country %in% top_countries) %>% 
+  droplevels() -> deaths_agg_time_country
+
+deaths_agg_time_country %>% 
+  arrange(factor(country, levels = top_countries)) %>% 
+  ggplot(aes(x = time, y = deaths, fill = reorder(country, deaths))) +
+  geom_area(position = "stack", color = "white") +
+  scale_fill_brewer(palette = "Reds") +
+  scale_y_continuous(labels = scales::comma) +
+  labs(fill = "Country",
+       x = 'Date',
+       y = "Number of deaths",
+       title = "Covid-19: Spread Slows in China While Accelerating in Western Countries",
+       subtitle = "Deaths by time and country",
+       caption = paste("Incl. cases up until", max(df_full_c$time), "\nData: Johns Hopkins CSSE\nVisualization: Lukas Jürgensmeier")) +
+    theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+          plot.caption = element_text(hjust = 0, face = "italic"),
+          legend.position = c(0.2, 0.7))
+grid::grid.raster(TA_logo, x = 0.98, y = 0.01, just = c('right', 'bottom'), width = unit(1.5, 'inches'))
+```
+
+### Deaths (linear scale)
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE}
+# linear scale
+
+df_full_c %>% 
+  filter(country %in% top_countries) %>% 
+  filter(country != "China") %>% 
+  ggplot(aes(days_deaths_10, deaths, color = country)) +
+  geom_line(size = 1.2) +
+  gghighlight::gghighlight(country %in% top_countries,
+                           label_params = list(segment.color = "black", fontface = "bold", fill = "black")) +
+  scale_color_brewer(palette = "Dark2") +
+  labs(x = "Days since 10th death",
+       y = "Number of deaths",
+       title = "Covid-19: Number of deaths since the 10th fatality",
+       subtitle = "Linear scale, excluding China",
+       caption = paste("Incl. cases up until", max(df_full_c$time), "\nData: Johns Hopkins CSSE\nVisualization: Lukas Jürgensmeier")) +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        plot.caption = element_text(hjust = 0, face = "italic"),
+        panel.grid.major.x = element_line(colour = "white", size = 0.5)) +
+  scale_x_continuous(minor_breaks = seq(0 , 100, 7), breaks = seq(0, 100, 7)) +
+  scale_y_continuous(labels = scales::comma,
+                limits = c(10, max(df_full$deaths)))
+grid::grid.raster(TA_logo, x = 0.98, y = 0.01, just = c('right', 'bottom'), width = unit(1.5, 'inches'))
+
+```
+
+### Deaths (log scale)
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE}
+# log10 scale
+
+df_full_c %>% 
+  filter(country %in% top_countries) %>% 
+  filter(country != "China") %>% 
+  ggplot(aes(days_deaths_10, deaths, color = country)) +
+  geom_line(size = 1.2) +
+  gghighlight::gghighlight(country %in% top_countries,
+                           label_params = list(segment.color = "black", fontface = "bold", fill = "black")) +
+  scale_color_brewer(palette = "Dark2") +
+  labs(x = "Days since 10th death",
+       y = "Number of deaths (log scale)",
+       title = "Covid-19: Number of deaths since the 10th fatality",
+       subtitle = "Log scale, excluding China",
+       caption = paste("Incl. cases up until", max(df_full_c$time), "\nData: Johns Hopkins CSSE\nVisualization: Lukas Jürgensmeier")) +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        plot.caption = element_text(hjust = 0, face = "italic"),
+        panel.grid.major.x = element_line(colour = "white", size = 0.5)) +
+  scale_x_continuous(minor_breaks = seq(0 , 100, 7), breaks = seq(0, 100, 7)) +
+  scale_y_log10(labels = scales::comma,
+                limits = c(10, max(df_full$deaths)))
+grid::grid.raster(TA_logo, x = 0.98, y = 0.01, just = c('right', 'bottom'), width = unit(1.5, 'inches'))
+
+```
+
+### Confirmed vs. deaths
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.width=8.5 , fig.height=7}
+# areaplot
+df_full_c %>% 
+  mutate(deaths = -deaths) %>% 
+  filter(country %in% top_countries) %>%
+ # filter(country != "China") %>% 
+  pivot_longer(confirmed:deaths, names_to = "status", values_to = "amount") %>%
+  ggplot(aes(x = days_larger_100)) +
+  geom_area(aes(y = amount, fill = status), color = "white", alpha = 0.7, position = position_dodge(0)) +
+  scale_fill_manual(values = c("#3c4ee0", "red", "black", "#3c4ee0")) +
+  scale_y_continuous(labels = scales::comma) +
+  facet_wrap(~country, scales = "free_y") +
+  labs(x = "Days since 100th confirmed case",
+       y = "Number of Patients",
+       title = "Covid-19: Comparing Positive Test Results to Deaths",
+       subtitle = "Confirmed cases and deaths over time for the top 8 affected countries",
+       caption = paste("Incl. cases up until", max(df_full_c$time), "\nData: Johns Hopkins CSSE\nVisualization: Lukas Jürgensmeier")) +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        plot.caption = element_text(hjust = 0, face = "italic"),
+        panel.grid.major.x = element_line(colour="white", size=0.5)) +
+  scale_x_continuous(minor_breaks = seq(0 , 100, 7), breaks = seq(0, 100, 7)) #+
+grid::grid.raster(TA_logo, x = 0.98, y = 0.01, just = c('right', 'bottom'), width = unit(1.5, 'inches'))
+```
+
+### Mortality rate
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE, fig.height=9}
+df_full_c %>% 
+  filter(time == max(df_full_c$time)) %>% 
+  mutate(mortality = deaths/confirmed) %>% 
+  arrange(desc(mortality)) %>% 
+  filter(confirmed > 1000) %>% 
+ # head(30) %>%
+  ggplot(aes(x = reorder(country, mortality))) +
+  geom_bar(aes(weight = mortality), fill = "#3c4ee0") +
+  gghighlight(country %in% top_countries) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Country",
+       y = "Mortality Rate",
+       title = "Covid-19: How deadly is the disease at the moment?",
+       subtitle = "A high mortality rate migth indicate an overwhelmed health care system",
+       caption = paste("Notes: Mortality rate calculated as deaths/confirmed.\nHandle this metric with care, since it cannot be measured accurately\nduring an outbreak (e.g. depends heavily on testing).\nOnly countries with > 1,000 confirmed cases, top 8 countries highlighted.",
+                       "\nIncl. cases up until", max(df_full_c$time), "\nData: Johns Hopkins CSSE\nVisualization: Lukas Jürgensmeier")) +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        plot.caption = element_text(hjust = 0, face = "italic"))
+grid::grid.raster(TA_logo, x = 0.98, y = 0.01, just = c('right', 'bottom'), width = unit(1.5, 'inches'))
+```
+
+A word of caution regarding the mortality rate: Here, it is calculated as $$mortality =\frac{deaths}{confirmed}.$$
+While the numerator might be measured quite accurately, the denominator depends largely on other factors such as availability and quantity of testing. If a country doesn't aggressively test a larger share of the population, the mortality rate will be overestimated by a wide margin. So please don't interpret too much into this metric and wait for post-hoc assessments through tests of representative random samples of the population.
+
+## Interactive Visualizations: Filter Individual Countries {.tabset}
+
+### Confirmed (total)
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE, fig.height=6, fig.width=8.5}
+p <- df_full_c %>% 
+  filter(confirmed >= 100) %>% 
+  ggplot(aes(days_larger_100, confirmed, color = country)) +
+  geom_line() +
+  # gghighlight::gghighlight(country %in% top_countries,
+  #                          label_params = list(segment.color = "black", fontface = "bold", fill = "black")) +
+  #scale_color_brewer(palette = "Blues") +
+  scale_colour_hue(h = c(0, 360), l = 40) +
+  labs(x = "Days since 100th confirmed case",
+       y = "Number of confirmed cases (log scale)",
+       title = "Covid-19: Germany will have 100,000 cases in 8 - 10 days without preventive measures",
+       subtitle = "Confirmed cases on a log scale, which makes an exponential curve appear linear",
+       caption = paste("Incl. cases up until", max(df_full_c$time), "\nData: Johns Hopkins CSSE\nVisualization: Lukas Jürgensmeier")) +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        plot.caption = element_text(hjust = 0, face = "italic"),
+        panel.grid.major.x = element_line(colour = "white", size = 0.5)) +
+  scale_x_continuous(minor_breaks = seq(0 , 100, 7), breaks = seq(0, 100, 7)) +
+  scale_y_log10(labels = scales::comma,
+                limits = c(100, max(df_full$confirmed)))
+
+ggplotly(p) %>% 
+  config(displaylogo = FALSE) %>% 
+  layout(title = list(text = paste0('<b>Covid-19: Number of Confirmed Cases by Country<b>',
+                                    '<br>',
+                                    '<sup>',
+                                    'Log scale. Data: Johns Hopkins CSSE. Incl. cases up until ',
+                                    max(df_full_c$time),
+                                    '</sup>')))
+  
+```
+
+
+### New confirmed (absolute)
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE, fig.height=6, fig.width=8.5}
+
+
+p_daily_confirmed <- df_full_c %>% 
+  filter(confirmed > 50) %>% 
+  ggplot(aes(days_larger_100, confirmed_abs_ma, color = country)) +
+  geom_line() +
+  geom_point(aes(y = confirmed_abs_daily, color = country), shape = 1, alpha = 0.3) +
+  labs(title = "a",
+       subtitle = "a",
+       x = "Days since 100th case",
+       y = "Daily new confirmed cases") +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        panel.grid.major.x = element_line(colour = "white", size = 0.5)) +
+  scale_y_continuous(limits = c(0, max(df_full_c$confirmed_abs_ma, na.rm = TRUE)), labels = scales::comma) +
+  scale_colour_hue(h = c(0, 360), l = 40)
+
+p_daily_confirmed %>%
+  ggplotly() %>%
+  config(displaylogo = FALSE) %>% 
+  layout(title = list(text = paste0('<b>Covid-19: Daily New Confirmed Cases (absolute)<b>',
+                                                                       '<br>',
+                                                                       '<sup>',
+                                                                       'Four-day moving average. Data: Johns Hopkins CSSE. Incl. cases up until ',
+                                                                       max(df_full_c$time),
+                                                                       '</sup>')))
+  
+```
+
+### New confirmed (percent change)
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE, fig.height=6, fig.width=8.5}
+
+p_confirmed_pct <- df_full_c %>% 
+  filter(confirmed > 50) %>% 
+  ggplot(aes(days_larger_100, confirmed_pct_ma - 1, color = country)) +
+  geom_line() +
+  geom_point(aes(y = confirmed_pct_daily - 1, color = country), shape = 1, alpha = 0.3) +
+  labs(title = "a",
+       subtitle = "a",
+       x = "Days since 100th case",
+       y = "percentage increase vs. previous day") +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        panel.grid.major.x = element_line(colour = "white", size = 0.5)) +
+  scale_y_continuous(limits = c(0, 2), labels = scales::percent) +
+  scale_colour_hue(h = c(0, 360), l = 40)
+
+p_confirmed_pct %>%
+  ggplotly() %>%
+  config(displaylogo = FALSE) %>% 
+  layout(title = list(text = paste0('<b>Covid-19: Daily New Confirmed Cases (percent change)<b>',
+                                    '<br>',
+                                    '<sup>',
+                                    'Four-day moving average. Data: Johns Hopkins CSSE. Incl. cases up until ',
+                                    max(df_full_c$time),
+                                    '</sup>')))
+  
+```
+
+
+### Deaths (total)
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE, fig.height=6, fig.width=8.5}
+plot_deaths <- df_full_c %>% 
+  filter(deaths >= 10) %>% 
+  ggplot(aes(days_deaths_10, deaths, color = country)) +
+  geom_line() +
+  # gghighlight::gghighlight(country %in% top_countries,
+  #                          label_params = list(segment.color = "black", fontface = "bold", fill = "black")) +
+  #scale_color_brewer(palette = "Blues") +
+  scale_colour_hue(h = c(0, 360), l = 40) +
+  labs(x = "Days since since 10th death",
+       y = "Number of deaths (log scale)",
+       title = "a",
+       subtitle = "a",
+       caption = paste("Incl. cases up until", max(df_full_c$time), "\nData: Johns Hopkins CSSE\nVisualization: Lukas Jürgensmeier")) +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        plot.caption = element_text(hjust = 0, face = "italic"),
+        panel.grid.major.x = element_line(colour = "white", size = 0.5)) +
+  scale_x_continuous(minor_breaks = seq(0 , 100, 7), breaks = seq(0, 100, 7)) +
+  scale_y_log10(labels = scales::comma,
+                limits = c(10, max(df_full$deaths)))
+
+ggplotly(plot_deaths) %>% 
+  config(displaylogo = FALSE) %>% 
+  layout(title = list(text = paste0('<b>Covid-19: Number of Deaths by Country<b>',
+                                    '<br>',
+                                    '<sup>',
+                                    'Log scale. Data: Johns Hopkins CSSE. Incl. cases up until ',
+                                    max(df_full_c$time),
+                                    '</sup>')))
+  
+```
+
+
+### New deaths (absolute)
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE, fig.height=6, fig.width=8.5}
+
+p_daily_deaths <- df_full_c %>% 
+  filter(deaths > 10) %>% 
+  ggplot(aes(days_deaths_10, deaths_abs_ma, color = country)) +
+  geom_line() +
+  geom_point(aes(y = deaths_abs_daily, color = country), shape = 1, alpha = 0.3) +
+  labs(title = "a",
+       subtitle = "a",
+       x = "Days since since 10th death",
+       y = "Daily deaths") +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        panel.grid.major.x = element_line(colour = "white", size = 0.5)) +
+  scale_y_continuous(limits = c(0, max(df_full_c$deaths_abs_daily, na.rm = TRUE)), labels = scales::comma) +
+  scale_colour_hue(h = c(0, 360), l = 40)
+
+p_daily_deaths %>%
+  ggplotly() %>%
+  config(displaylogo = FALSE) %>% 
+  layout(title = list(text = paste0('<b>Covid-19: Daily New Deaths (absolute)<b>',
+                                    '<br>',
+                                    '<sup>',
+                                    'Four-day moving average. Data: Johns Hopkins CSSE. Incl. cases up until ',
+                                    max(df_full_c$time),
+                                    '</sup>')))
+```
+
+
+
+### New deaths (percent change)
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE, fig.height=6, fig.width=8.5}
+
+p_deaths_pct <- df_full_c %>% 
+  filter(deaths > 10) %>% 
+  ggplot(aes(days_deaths_10, deaths_pct_ma - 1, color = country)) +
+  geom_line() +
+  geom_point(aes(y = deaths_pct_daily - 1, color = country), shape = 1, alpha = 0.3) +
+  labs(title = "a",
+       subtitle = "a",
+       x = "Days since since 10th death",
+       y = "percentage increase vs. previous day") +
+  theme(plot.title = element_text(color = "#3c4ee0", face = 'bold'),
+        panel.grid.major.x = element_line(colour = "white", size = 0.5)) +
+  scale_y_continuous(limits = c(0, 2), labels = scales::percent) +
+  scale_colour_hue(h = c(0, 360), l = 40)
+
+p_deaths_pct %>%
+  ggplotly() %>%
+  config(displaylogo = FALSE) %>% 
+  layout(title = list(text = paste0('<b>Covid-19: Daily New Deaths (percent change)<b>',
+                                    '<br>',
+                                    '<sup>',
+                                    'Four-day moving average. Data: Johns Hopkins CSSE. Incl. cases up until ',
+                                    max(df_full_c$time),
+                                    '</sup>')))
+  
+```
+
+
+
+## <!-- This is commented out. -->
+
+
