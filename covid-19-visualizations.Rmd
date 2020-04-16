@@ -1,5 +1,10 @@
 ---
 title: "A Closer Look at the Covid-19 Data"
+knit: (function(input_file, encoding) {
+  out_dir <- "docs";
+  rmarkdown::render(input_file,
+ encoding=encoding,
+ output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
 author: "by Lukas Jürgensmeier"
 output: html_document
 editor_options: 
