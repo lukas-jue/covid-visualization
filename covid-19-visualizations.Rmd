@@ -41,9 +41,9 @@ Sys.setlocale("LC_TIME", "English")
 
 ```{r, include = FALSE, warnings=FALSE}
 # additional plotting
-df_full <- read.csv("../../data/predict/predict.csv")
-world_map <- read.csv("../../data/maps/world_map.csv") %>% mutate(time = as.Date(time))
-country_lookup <- read.csv("../../data/misc/country_lookup.csv")
+df_full <- read.csv("../../data/predict/predict.csv", stringsAsFactors = T)
+world_map <- read.csv("../../data/maps/world_map.csv", stringsAsFactors = T) %>% mutate(time = as.Date(time))
+country_lookup <- read.csv("../../data/misc/country_lookup.csv", stringsAsFactors = T)
 
 ma <- 4 # defines moving average parameter
 
