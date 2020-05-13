@@ -6,7 +6,10 @@ knit: (function(input_file, encoding) {
  encoding=encoding,
  output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
 author: "by Lukas Jürgensmeier"
-output: html_document
+output: 
+  html_document:
+    includes:
+       in_header: google_analytics.html
 editor_options: 
   chunk_output_type: console
 ---
